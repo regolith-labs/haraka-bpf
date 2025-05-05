@@ -12,6 +12,35 @@ This makes the crate portable and allows it to be compiled to targets like BPF (
 
 The implementation provides the original 5-round Haraka functions (for 256 and 512 bits of input) which offer preimage resistance, as well as extensions to 6 rounds targeting collision resistance.
 
+## Building
+
+You can compile this crate for both Solana SBF and generic Linux/eBPF targets using the same source:
+
+### Solana SBF
+
+```bash
+# Build using the Solana toolchain wrapper
+cargo build-sbf
+```
+
+### Linux eBPF (generic BPF)
+
+Make sure you have the Rust source component for nightly:
+
+```bash
+rustup +nightly component add rust-src
+```
+
+Then compile core and alloc for the BPF target:
+
+```bash
+cargo +nightly build \
+  --target bpfel-unknown-none \
+  --release \
+  --no-default-features \
+  -Zbuild-std=core,alloc
+```
+
 ## Testing
 
 Unit tests are implemented to check the logic of Haraka's building blocks.
@@ -20,4 +49,3 @@ High-level test vectors were generated from the [Python implementation](https://
 ## License
 
 MIT
-
