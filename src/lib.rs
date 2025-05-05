@@ -16,7 +16,13 @@ pub fn haraka512<const N_ROUNDS: usize>(dst: &mut [u8; 32], src: &[u8; 64]) {
 
 /// Computes the keyed Haraka-512 permutation with N_ROUNDS rounds.
 ///
-/// See `haraka512_keyed::haraka512_keyed` for details.
+/// The 64-byte `state` is XORed with the 64-byte `key`, permuted using
+/// `N_ROUNDS` of the Haraka-512 round function, then XORed with the
+/// *post-key* state (feed-forward step). The result is truncated to 32 bytes
+/// and written to `dst` in little-endian format (specifically, the high 64 bits
+/// of the first two 128-bit lanes after permutation and feed-forward).
+///
+/// See `haraka512_keyed::haraka512_keyed` for implementation details.
 pub fn haraka512_keyed<const N_ROUNDS: usize>(
     dst: &mut [u8; 32],
     state: &[u8; 64],
