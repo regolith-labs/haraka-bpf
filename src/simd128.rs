@@ -1,210 +1,135 @@
-#[cfg(target_arch = "aarch64")]
-use core::arch::aarch64::{
-    uint8x16_t, vaeseq_u8, vaesmcq_u8, vdupq_n_u8, veorq_u8, vld1q_u8, vreinterpretq_u32_u8,
-    vreinterpretq_u64_u8, vreinterpretq_u8_u32, vreinterpretq_u8_u64, vst1q_u8, vzip1q_u32,
-    vzip1q_u64, vzip2q_u32, vzip2q_u64,
-};
-#[cfg(target_arch = "arm")]
-use core::arch::arm::{
-    uint8x16_t, vaeseq_u8, vaesmcq_u8, vdupq_n_u8, veorq_u8, vld1q_u8, vreinterpretq_u32_u8,
-    vreinterpretq_u8_u32, vst1q_u8, vzipq_u32,
-};
-#[cfg(target_arch = "x86")]
-use std::arch::x86::{
-    __m128i, _mm_aesenc_si128, _mm_loadu_si128, _mm_storeu_si128, _mm_unpackhi_epi32,
-    _mm_unpackhi_epi64, _mm_unpacklo_epi32, _mm_unpacklo_epi64, _mm_xor_si128,
-};
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::{
-    __m128i, _mm_aesenc_si128, _mm_loadu_si128, _mm_storeu_si128, _mm_unpackhi_epi32,
-    _mm_unpackhi_epi64, _mm_unpacklo_epi32, _mm_unpacklo_epi64, _mm_xor_si128,
-};
-use std::mem::transmute;
+use aes::cipher::Block;
+use aes::hazmat::cipher_round;
+use aes::Aes128; // Import the specific AES type
+use core::ops::BitXorAssign;
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[derive(Clone, Copy)]
-pub(crate) struct Simd128(__m128i);
+/// Represents a 128-bit SIMD value, implemented using aes::Block<aes::Aes128> for portability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub(crate) struct Simd128(Block<Aes128>);
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 impl Simd128 {
+    /// Creates a Simd128 value from a u128.
+    /// Note: The byte order depends on the target architecture (little-endian assumed).
     pub const fn from(x: u128) -> Self {
-        Self(unsafe { transmute(x) })
+        // GenericArray requires a const context for `from_slice`, which isn't stable yet.
+        // We use `to_le_bytes` and transmute as a workaround.
+        // This assumes the underlying Block representation matches [u8; 16].
+        // SAFETY: Block is repr(transparent) over GenericArray<u8, U16>, which has the same
+        // size and alignment as [u8; 16].
+        unsafe { core::mem::transmute(x.to_le_bytes()) }
     }
 
     /// Read from array pointer (potentially unaligned)
     #[inline(always)]
     pub fn read(src: &[u8; 16]) -> Self {
-        let x = unsafe { _mm_loadu_si128(src.as_ptr() as *const _ as *const __m128i) };
-        Self(x)
+        Self(Block::<Aes128>::clone_from_slice(src))
     }
 
     /// Write into array pointer (potentially unaligned)
     #[inline(always)]
     pub fn write(self, dst: &mut [u8; 16]) {
-        unsafe {
-            _mm_storeu_si128(dst.as_mut_ptr() as *mut _ as *mut __m128i, self.0);
-        }
+        dst.copy_from_slice(self.0.as_slice());
     }
 
+    /// Performs one round of AES encryption (SubBytes, ShiftRows, MixColumns)
+    /// on the block, then XORs the result with the key.
+    /// This mimics the behavior of the `_mm_aesenc_si128` intrinsic.
     #[inline(always)]
     pub(crate) fn aesenc(block: &mut Self, key: &Self) {
-        unsafe {
-            block.0 = _mm_aesenc_si128(block.0, key.0);
-        }
+        // cipher_round performs SubBytes, ShiftRows, MixColumns, and AddRoundKey (XOR)
+        cipher_round(&mut block.0, &key.0);
     }
 
+    /// Performs a bitwise XOR operation.
     #[inline(always)]
     pub(crate) fn pxor(dst: &mut Self, src: &Self) {
-        unsafe {
-            dst.0 = _mm_xor_si128(dst.0, src.0);
-        }
+        *dst ^= *src;
     }
 
+    /// Interleaves the lower 4-byte words of `dst` and `src`.
+    /// dst = [a0 a1 a2 a3 | a4 a5 a6 a7 | a8 a9 aa ab | ac ad ae af]
+    /// src = [b0 b1 b2 b3 | b4 b5 b6 b7 | b8 b9 ba bb | bc bd be bf]
+    /// result = [a0 a1 a2 a3 | b0 b1 b2 b3 | a4 a5 a6 a7 | b4 b5 b6 b7]
     #[inline(always)]
     pub(crate) fn unpacklo_epi32(dst: &mut Self, src: &Self) {
-        unsafe {
-            dst.0 = _mm_unpacklo_epi32(dst.0, src.0);
-        }
+        let mut res = [0u8; 16];
+        let a = dst.0.as_slice();
+        let b = src.0.as_slice();
+
+        res[0..4].copy_from_slice(&a[0..4]);
+        res[4..8].copy_from_slice(&b[0..4]);
+        res[8..12].copy_from_slice(&a[4..8]);
+        res[12..16].copy_from_slice(&b[4..8]);
+
+        dst.0 = Block::<Aes128>::clone_from_slice(&res);
     }
 
+    /// Interleaves the higher 4-byte words of `dst` and `src`.
+    /// dst = [a0 a1 a2 a3 | a4 a5 a6 a7 | a8 a9 aa ab | ac ad ae af]
+    /// src = [b0 b1 b2 b3 | b4 b5 b6 b7 | b8 b9 ba bb | bc bd be bf]
+    /// result = [a8 a9 aa ab | b8 b9 ba bb | ac ad ae af | bc bd be bf]
     #[inline(always)]
     pub(crate) fn unpackhi_epi32(dst: &mut Self, src: &Self) {
-        unsafe {
-            dst.0 = _mm_unpackhi_epi32(dst.0, src.0);
-        }
+        let mut res = [0u8; 16];
+        let a = dst.0.as_slice();
+        let b = src.0.as_slice();
+
+        res[0..4].copy_from_slice(&a[8..12]);
+        res[4..8].copy_from_slice(&b[8..12]);
+        res[8..12].copy_from_slice(&a[12..16]);
+        res[12..16].copy_from_slice(&b[12..16]);
+
+        dst.0 = Block::<Aes128>::clone_from_slice(&res);
     }
 
+    /// Interleaves the lower 8-byte words of `lhs` and `rhs`.
+    /// lhs = [a0..a7 | a8..af]
+    /// rhs = [b0..b7 | b8..bf]
+    /// result = [a0..a7 | b0..b7]
     #[inline(always)]
     pub(crate) fn unpacklo_epi64(lhs: &Self, rhs: &Self) -> Self {
-        unsafe { Self(_mm_unpacklo_epi64(lhs.0, rhs.0)) }
+        let mut res = [0u8; 16];
+        let a = lhs.0.as_slice();
+        let b = rhs.0.as_slice();
+
+        res[0..8].copy_from_slice(&a[0..8]);
+        res[8..16].copy_from_slice(&b[0..8]);
+
+        Self(Block::<Aes128>::clone_from_slice(&res))
     }
 
+    /// Interleaves the higher 8-byte words of `lhs` and `rhs`.
+    /// lhs = [a0..a7 | a8..af]
+    /// rhs = [b0..b7 | b8..bf]
+    /// result = [a8..af | b8..bf]
     #[inline(always)]
     pub(crate) fn unpackhi_epi64(lhs: &Self, rhs: &Self) -> Self {
-        unsafe { Self(_mm_unpackhi_epi64(lhs.0, rhs.0)) }
+        let mut res = [0u8; 16];
+        let a = lhs.0.as_slice();
+        let b = rhs.0.as_slice();
+
+        res[0..8].copy_from_slice(&a[8..16]);
+        res[8..16].copy_from_slice(&b[8..16]);
+
+        Self(Block::<Aes128>::clone_from_slice(&res))
     }
 }
 
-#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-#[derive(Clone, Copy)]
-pub(crate) struct Simd128(uint8x16_t);
-
-#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-impl Simd128 {
-    pub const fn from(x: u128) -> Self {
-        Self(unsafe { transmute(x) })
-    }
-
-    /// Read from array pointer (potentially unaligned)
+impl BitXorAssign for Simd128 {
     #[inline(always)]
-    pub fn read(src: &[u8; 16]) -> Self {
-        let x = unsafe { vld1q_u8(src.as_ptr() as *const _ as *const u8) };
-        Self(x)
-    }
-
-    /// Write into array pointer (potentially unaligned)
-    #[inline(always)]
-    pub fn write(self, dst: &mut [u8; 16]) {
-        unsafe {
-            vst1q_u8(dst.as_mut_ptr() as *mut _ as *mut u8, self.0);
+    fn bitxor_assign(&mut self, rhs: Self) {
+        // Perform XOR element-wise since GenericArray doesn't implement BitXorAssign
+        for (a, b) in self.0.as_mut_slice().iter_mut().zip(rhs.0.as_slice()) {
+            *a ^= *b;
         }
     }
+}
 
-    #[inline(always)]
-    pub(crate) fn aesenc(block: &mut Self, key: &Self) {
-        unsafe {
-            let zero = vdupq_n_u8(0);
-            let x = vaeseq_u8(block.0, zero);
-            let y = vaesmcq_u8(x);
-            block.0 = veorq_u8(y, key.0);
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn pxor(dst: &mut Self, src: &Self) {
-        unsafe {
-            dst.0 = veorq_u8(dst.0, src.0);
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn unpacklo_epi32(dst: &mut Self, src: &Self) {
-        unsafe {
-            let a = vreinterpretq_u32_u8(dst.0);
-            let b = vreinterpretq_u32_u8(src.0);
-            // TODO: vzip1q_u32 is missing from core::arch::arm.
-            #[cfg(target_arch = "arm")]
-            let x = vzipq_u32(a, b).0;
-            #[cfg(target_arch = "aarch64")]
-            let x = vzip1q_u32(a, b);
-            dst.0 = vreinterpretq_u8_u32(x);
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn unpackhi_epi32(dst: &mut Self, src: &Self) {
-        unsafe {
-            let a = vreinterpretq_u32_u8(dst.0);
-            let b = vreinterpretq_u32_u8(src.0);
-            // TODO: vzip2q_u32 is missing from core::arch::arm.
-            #[cfg(target_arch = "arm")]
-            let x = vzipq_u32(a, b).1;
-            #[cfg(target_arch = "aarch64")]
-            let x = vzip2q_u32(a, b);
-            dst.0 = vreinterpretq_u8_u32(x);
-        }
-    }
-
-    // TODO: vzip*q_u64 is missing from core::arch::arm.
-    #[cfg(target_arch = "arm")]
-    #[inline(always)]
-    pub(crate) fn unpacklo_epi64(lhs: &Self, rhs: &Self) -> Self {
-        unsafe {
-            let a = lhs.split().0;
-            let b = rhs.split().0;
-            let pair: (u64, u64) = (a, b);
-            Self(transmute(pair))
-        }
-    }
-
-    // TODO: vzip*q_u64 is missing from core::arch::arm.
-    #[cfg(target_arch = "arm")]
-    #[inline(always)]
-    pub(crate) fn unpackhi_epi64(lhs: &Self, rhs: &Self) -> Self {
-        unsafe {
-            let a = lhs.split().1;
-            let b = rhs.split().1;
-            let pair: (u64, u64) = (a, b);
-            Self(transmute(pair))
-        }
-    }
-
-    #[cfg(target_arch = "arm")]
-    #[inline(always)]
-    fn split(&self) -> (u64, u64) {
-        unsafe { transmute(self.0) }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[inline(always)]
-    pub(crate) fn unpacklo_epi64(lhs: &Self, rhs: &Self) -> Self {
-        unsafe {
-            let a = vreinterpretq_u64_u8(lhs.0);
-            let b = vreinterpretq_u64_u8(rhs.0);
-            let x = vzip1q_u64(a, b);
-            Self(vreinterpretq_u8_u64(x))
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[inline(always)]
-    pub(crate) fn unpackhi_epi64(lhs: &Self, rhs: &Self) -> Self {
-        unsafe {
-            let a = vreinterpretq_u64_u8(lhs.0);
-            let b = vreinterpretq_u64_u8(rhs.0);
-            let x = vzip2q_u64(a, b);
-            Self(vreinterpretq_u8_u64(x))
-        }
+// Implement Default for Simd128 if needed, e.g., for constants
+impl Default for Simd128 {
+    fn default() -> Self {
+        Self(Block::<Aes128>::default())
     }
 }
 
@@ -221,9 +146,13 @@ mod tests {
 
     #[test]
     fn test_aesenc() {
+        // Applying one AES round (SubBytes, ShiftRows, MixColumns) + AddRoundKey (XOR)
+        // to a zero block with a zero key results in [0x63; 16].
+        // SubBytes(0) = 0x63. ShiftRows and MixColumns on a uniform block yield the same block.
+        // XORing with 0 leaves it unchanged.
         let mut dst = [0u8; 16];
         let key = [0u8; 16];
-        let expect = [99u8; 16];
+        let expect = [0x63u8; 16]; // Corrected expected value
         aesenc_slice(&mut dst, &key);
         assert_eq!(dst, expect);
     }

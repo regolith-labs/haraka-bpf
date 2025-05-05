@@ -1,5 +1,3 @@
-#![cfg_attr(any(target_arch = "arm", target_arch = "aarch64"), feature(stdsimd))]
-
 mod constants;
 mod haraka256;
 mod haraka512;
