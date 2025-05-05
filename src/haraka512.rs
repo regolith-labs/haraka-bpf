@@ -3,7 +3,13 @@ use crate::simd128::Simd128;
 use arrayref::{array_mut_ref, array_ref};
 
 #[inline(always)]
-fn aes4(s0: &mut Simd128, s1: &mut Simd128, s2: &mut Simd128, s3: &mut Simd128, rci: usize) {
+pub(crate) fn aes4(
+    s0: &mut Simd128,
+    s1: &mut Simd128,
+    s2: &mut Simd128,
+    s3: &mut Simd128,
+    rci: usize,
+) {
     Simd128::aesenc(s0, &constants::HARAKA_CONSTANTS[rci]);
     Simd128::aesenc(s1, &constants::HARAKA_CONSTANTS[rci + 1]);
     Simd128::aesenc(s2, &constants::HARAKA_CONSTANTS[rci + 2]);
@@ -15,7 +21,7 @@ fn aes4(s0: &mut Simd128, s1: &mut Simd128, s2: &mut Simd128, s3: &mut Simd128, 
 }
 
 #[inline(always)]
-fn mix4(s0: &mut Simd128, s1: &mut Simd128, s2: &mut Simd128, s3: &mut Simd128) {
+pub(crate) fn mix4(s0: &mut Simd128, s1: &mut Simd128, s2: &mut Simd128, s3: &mut Simd128) {
     let mut tmp = *s0;
     Simd128::unpacklo_epi32(&mut tmp, s1);
     Simd128::unpackhi_epi32(s0, s1);
@@ -32,13 +38,25 @@ fn mix4(s0: &mut Simd128, s1: &mut Simd128, s2: &mut Simd128, s3: &mut Simd128) 
 }
 
 #[inline(always)]
-fn aes_mix4(s0: &mut Simd128, s1: &mut Simd128, s2: &mut Simd128, s3: &mut Simd128, rci: usize) {
+pub(crate) fn aes_mix4(
+    s0: &mut Simd128,
+    s1: &mut Simd128,
+    s2: &mut Simd128,
+    s3: &mut Simd128,
+    rci: usize,
+) {
     aes4(s0, s1, s2, s3, rci);
     mix4(s0, s1, s2, s3);
 }
 
 #[inline(always)]
-fn truncstore(dst: &mut [u8; 32], s0: &Simd128, s1: &Simd128, s2: &Simd128, s3: &Simd128) {
+pub(crate) fn truncstore(
+    dst: &mut [u8; 32],
+    s0: &Simd128,
+    s1: &Simd128,
+    s2: &Simd128,
+    s3: &Simd128,
+) {
     Simd128::unpackhi_epi64(s0, s1).write(array_mut_ref![dst, 0, 16]);
     Simd128::unpacklo_epi64(s2, s3).write(array_mut_ref![dst, 16, 16]);
 }
