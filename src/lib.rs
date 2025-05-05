@@ -1,8 +1,4 @@
-#![cfg_attr(test, feature(test))]
 #![cfg_attr(any(target_arch = "arm", target_arch = "aarch64"), feature(stdsimd))]
-
-#[cfg(test)]
-extern crate test;
 
 mod constants;
 mod haraka256;
