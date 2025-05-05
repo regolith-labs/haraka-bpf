@@ -1,8 +1,8 @@
 [package]
-name = "haraka"
+name = "haraka-bpf"
 version = "0.1.0"
-authors = ["G. Endignoux <ggendx@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+aes = "0.8.4"
 arrayref = "0.3.6"

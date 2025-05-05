@@ -4,7 +4,7 @@ A fork of [haraka-rs](https://github.com/gendx/haraka-rs), providing a portable,
 
 ## Implementation
 
-This fork diverges from the original `haraka-rs` by removing the dependency on hardware AES-NI instructions. Instead, it utilizes the [aes-soft](https://crates.io/crates/aes-soft) crate for a pure software implementation of AES rounds.
+This fork diverges from the original `haraka-rs` by removing the dependency on hardware AES-NI instructions. Instead, it utilizes the [aes](https://crates.io/crates/aes) crate for a pure software implementation of AES rounds.
 
 This makes the crate portable and allows it to be compiled to targets like BPF (specifically SBF for the Solana runtime) where hardware intrinsics are not available.
 
