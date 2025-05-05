@@ -1,16 +1,14 @@
-# haraka-rs
+# haraka-bpf (fork of haraka-rs)
 
-![Build Status](https://github.com/gendx/haraka-rs/workflows/Build/badge.svg)
-![Test Status](https://github.com/gendx/haraka-rs/workflows/Tests/badge.svg)
-
-A Rust implementation of the [Haraka](https://github.com/kste/haraka) (v2) short-input hash function.
+A fork of [haraka-rs](https://github.com/gendx/haraka-rs), providing a portable, software-only Rust implementation of the [Haraka](https://github.com/kste/haraka) (v2) short-input hash function, suitable for BPF/SBF environments like the Solana runtime.
 
 ## Implementation
 
-As for the original Haraka implementation in C, this project relies on AES-NI instructions, which are available on the stable Rust compiler via [intrinsics](https://doc.rust-lang.org/core/arch/x86_64/fn._mm_aesenc_si128.html).
+This fork diverges from the original `haraka-rs` by removing the dependency on hardware AES-NI instructions. Instead, it utilizes the [aes-soft](https://crates.io/crates/aes-soft) crate for a pure software implementation of AES rounds.
 
-Besides the original 5-round Haraka functions (with 256 and 512 bits of input), extensions to 6 rounds are provided.
-This is to target collision resistance, contrary to the 5-round versions that only provide preimage resistance.
+This makes the crate portable and allows it to be compiled to targets like BPF (specifically SBF for the Solana runtime) where hardware intrinsics are not available.
+
+The implementation provides the original 5-round Haraka functions (for 256 and 512 bits of input) which offer preimage resistance, as well as extensions to 6 rounds targeting collision resistance.
 
 ## Testing
 
