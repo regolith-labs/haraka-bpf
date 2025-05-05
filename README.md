@@ -1,4 +1,6 @@
-# haraka-bpf (fork of haraka-rs)
+Portable no-std Haraka fork for eBPF & Solana SBF
+
+# haraka-bpf
 
 A fork of [haraka-rs](https://github.com/gendx/haraka-rs), providing a portable, software-only Rust implementation of the [Haraka](https://github.com/kste/haraka) (v2) short-input hash function, suitable for BPF/SBF environments like the Solana runtime.
 

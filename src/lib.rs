@@ -1,3 +1,5 @@
+#![no_std]
+
 mod constants;
 mod haraka256;
 mod haraka512;
